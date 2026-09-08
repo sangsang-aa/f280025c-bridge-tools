@@ -1,14 +1,15 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 serial_bridge.py — COM <-> WebSocket 透明桥 + Modbus RTU 帧日志(MOTOTUNE 桥接模式)
 
 用途: Web 上位机(浏览器)不再直接开 COM 口,而是连接本桥(ws://127.0.0.1:8765);
       桥独占 COM 并把每一帧通讯 TX/RX 16 进制 + 解释 实时打印 —— 上位机测试与监控并行。
+      启动时自动: 等 XDS110 串口出现 -> 释放板子启动(解除 BROM WAIT) -> 串口自检。
 
 用法:
-  python serial_bridge.py                          # --port auto: 自动识别 XDS110 回传(COM n)
-  python serial_bridge.py --port COM4 --baud 115200
+  python serial_bridge.py                          # --port auto; 自动识别 XDS110 回传
+  python serial_bridge.py --port COM4 --baud 781250
 
 依赖: pip install pyserial websockets
 """
@@ -71,7 +72,7 @@ def auto_fix_boot() -> bool:
     try:
         r = subprocess.run(
             f'"{CCS_RUN_BAT}" "{BOOT_RUN_MJS}"',
-            shell=True, capture_output=True, timeout=150, cwd=str(BOOT_RUN_MJS.parent)
+            shell=True, capture_output=True, timeout=150, cwd=str(BOOT_RUN_MJS.parent),
         )
         raw = (r.stdout or b"") + (r.stderr or b"")
         if b"BOOT RELEASED" in raw:
@@ -103,28 +104,20 @@ def uart_verify(port: str, baud: int) -> bool:
     if d and d[:3] == bytes.fromhex("01 03 02"):
         print("  [OK] 固件已运行(自检 RX:", d.hex() + ")")
         return True
-    print("  [X] 自检无应答:", (d or b"").hex() or "(empty)")
+    print("  [X] 自检无应答:", d.hex() if d else "(empty)")
     return False
 
 
-def wait_for_xds110_port(exclude_bluetooth: bool = True) -> str | None:
+def wait_for_xds110_port() -> str | None:
     """等 XDS110 应用串口出现(拔插后枚举需几秒)。"""
     import time
 
     for _ in range(30):
         for p in list_ports.comports():
-            if "xds110" in (p.description or "").lower() and p.device.lower().startswith("com"):
-                if "uart" in (p.description or "").lower() or "user" in (p.description or "").lower() or "app" in (p.description or "").lower():
-                    return p.device
+            desc = (p.description or "").lower()
+            if "xds110" in desc and "uart" in desc or "user" in desc or "app" in desc:
+                return p.device
         time.sleep(1)
-    return None
-
-# 自动识别: XDS110 的应用串口描述里通常含 "Application/User UART" 或 "XDS110"
-def find_xds110_port() -> str | None:
-    for p in list_ports.comports():
-        blob = f"{p.device} {p.description or ''} {p.product or ''}".lower()
-        if "xds110" in blob and ("uart" in blob or "app" in blob or "user" in blob):
-            return p.device
     return None
 
 
@@ -165,7 +158,7 @@ class FrameLog:
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="MOTOTUNE COM<->WebSocket 串口桥 + Modbus 帧日志")
     ap.add_argument("--port", default="auto", help="串口(默认 auto=自动识别 XDS110 回传;可写 COM4 等)")
-    ap.add_argument("--baud", type=int, default=115200, help="波特率(默认 115200,需与固件一致)")
+    ap.add_argument("--baud", type=int, default=781250, help="波特率(默认 781250,需与固件一致)")
     ap.add_argument("--listen", default="127.0.0.1", help="监听地址(默认 127.0.0.1)")
     ap.add_argument("--tcp", type=int, default=8765, help="监听端口(默认 8765)")
     ap.add_argument("--no-fix-boot", action="store_true", help="启动时不自动释放板子启动(默认自动)")
@@ -178,17 +171,15 @@ async def main() -> None:
     import sys
     sys.stdout.reconfigure(encoding="utf-8")
 
-    # 等待板子/探针枚举完成(拔插后 COM 需要几秒才出现)
-    print("[i] 等待 XDS110 应用串口出现...")
-    waited = wait_for_xds110_port()
-    if not waited:
-        print("[!] 未等到 XDS110 串口(确认板子 USB 已插好);仍按原配置启动,可稍后用 --port COMx")
-    else:
-        print(f"[i] 检测到 XDS110 回传串口: {waited}")
-        if args.port == "auto":
-            args.port = waited
-
     if not args.no_fix_boot:
+        print("[i] 等待 XDS110 应用串口出现...")
+        waited = wait_for_xds110_port()
+        if waited:
+            print(f"[i] 检测到 XDS110 回传串口: {waited}")
+            if args.port == "auto":
+                args.port = waited
+        else:
+            print("[!] 未等到 XDS110 串口(确认板子 USB 已插好);可稍后用 --port COMx")
         print("[i] 释放板子启动(解除 BROM WAIT)...")
         auto_fix_boot()
         print(f"[i] 串口自检({args.port} @ {args.baud}):")
@@ -256,7 +247,8 @@ async def main() -> None:
                 session["ser"] = None
             session["task"] = None
             try:
-                session["task"] and session["task"].cancel()
+                if session["task"]:
+                    session["task"].cancel()
             except Exception:
                 pass
             log.done()
@@ -274,4 +266,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\n[i] 桥已退出(Ctrl+C)。板子会自动从 Flash 继续运行,无需再释放。")
+        print("\n[i] 桥已退出(Ctrl+C)。板子会从 Flash 继续运行,无需再释放。")

@@ -117,7 +117,7 @@ def f32_regs_bytes(f: float):
 
 
 class Monitor:
-    def __init__(self, port=None, baud=1500000, slave=1, timeout=0.25):
+    def __init__(self, port=None, baud=781250, slave=1, timeout=0.25):
         self.baud = baud
         self.slave = slave
         self.timeout = timeout
@@ -170,7 +170,7 @@ class Monitor:
         frame = bytes(buf[:total])
         body = frame[:-2]
         calc = crc16(body)
-        recv = frame[total - 2] | (frame[total - 1] << 8)   # CRC 低字节在前
+        recv = frame[total - 2] | (frame[total - 1] << 8)
         return frame if calc == recv else None
 
     def transact(self, frame: bytes, note=""):
@@ -393,7 +393,7 @@ def interactive(mon: Monitor, auto_port):
 def main():
     ap = argparse.ArgumentParser(description="F280025C Modbus RTU 从站监控/测试")
     ap.add_argument("--port", help="串口设备(默认自动检测)")
-    ap.add_argument("--baud", type=int, default=1500000, help="波特率(默认 1500000)")
+    ap.add_argument("--baud", type=int, default=781250, help="波特率(默认 781250,与固件一致)")
     ap.add_argument("--slave", type=int, default=1, help="从站地址(默认 1)")
     ap.add_argument("--tests", action="store_true", help="跑一遍验证后退出")
     ap.add_argument("--poll", nargs="?", const=200, type=int, default=None, help="轮询遥测 [间隔 ms]")

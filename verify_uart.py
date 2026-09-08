@@ -1,13 +1,15 @@
-# verify_uart.py — 验证固件已运行: 发一帧读转速设定(0x0000)请求
+﻿# verify_uart.py — 验证固件已运行: 发一帧读转速设定(0x0000)请求
 import sys
 import time
 
 import serial
 
+BAUD = 781250  # 与固件 MODBUS_BAUD 一致(921600 无法整除 25MHz LSPCLK)
+
 
 def main() -> int:
     try:
-        s = serial.Serial("COM4", 115200, timeout=0.5)
+        s = serial.Serial("COM4", BAUD, timeout=0.5)
         time.sleep(0.3)
         s.reset_input_buffer()
         s.write(bytes.fromhex("01 03 00 00 00 01 84 0A"))
