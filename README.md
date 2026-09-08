@@ -61,6 +61,22 @@ powershell -ExecutionPolicy Bypass -File E:\f280025c_modbus_slave\ccs\build_fw.p
 & C:\ti\ccs2040\ccs\ccs_base\DebugServer\bin\DSLite.exe flash --config C:\ti\c2000\C2000Ware_6_00_01_00\device_support\f28002x\common\targetConfigs\TMS320F280025C_LaunchPad.ccxml -e -u -f E:\f280025c_modbus_slave\build\f280025c_modbus_slave.out
 ```
 
+## 固件当前状态(波形引擎 + 响应双缓冲)
+
+**波形引擎(已实现并烧写)**
+- CPUTimer1 @30kHz 生成 `cos(600πt)` 正弦(cosf,FPU32),每 6 点抽 1 → **5kHz 采集率**写入 `waveBuf`
+- 双缓冲攒 100 点:写满先**冻结**整批→切换→`0x2200` 批次号+1、`0x2201` bit0 置位;0x03 读波形区时整块快照 DINT/EINT 防撕裂
+- 寄存器:`0x2000..0x20C7`=100×float32(big-endian 高字在前),`0x2200` 批次(只读),`0x2201` 状态 bit0(0x03 读到自动清位;0x06 写 0 也可清)
+- 0x03 单次上限 125 寄存器 → 200 寄存器拆两次:`0x2000×125` + `0x207D×75`(y 已验)
+
+**响应发送双缓冲(已修复旧版覆盖 bug)**
+- ISR 生成响应后拷入**非发送槽**再发布长度;主循环只发当前槽——"发送期间新请求覆盖 resp"的问题已除
+- 压测:字节级验证波形数据有效;批次/状态/遥测正常
+
+**已知物理层边界(非逻辑 bug)**
+- XDS110 USB 回传在 **781250 满负荷持续传输**下偶发:整帧无响应(≈5~10%)/帧中丢 2 字节(后续字节平移,CRC 必错)。115200 时无此现象。
+- **上位机读取波形建议**:5~10Hz 读取、CRC 校验、失败重试 2 次、批次号前后一致才采用;对"零丢帧"场景请回退 115200
+
 ## 排查清单(网页连上但无帧/无应答)
 
 1. 看桥启动信息:检测到的串口要含 XDS110 应用 UART;`--port` 不对时用 `--port COMx`
