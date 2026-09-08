@@ -27,7 +27,8 @@ E:\f280025c_modbus_slave\
 | 项 | 值 | 说明 |
 |---|---|---|
 | 固件 | F280025C Modbus RTU 从站,8N1,从站地址 0x01 | 已烧入开发板 |
-| 波特率 | **115200** | 1500000 无法整除 LSPCLK(25MHz),误差 4.2% 必然断链;1562500 理论可行未实测 |
+| 波特率 | **1041667** | =25MHz/24 精确分频;921600 在此 LSPCLK 下无整数解(最近真值 781250/1041667,偏差≥13%),**上位机需用 1041667** |
+| 波形区 | 0x2000..0x20C7 = 100×float32(big-endian 高字低地址),0x2200=批次号(只读),0x2201 bit0=新批次就绪(0x03 读后自动清,0x06 写 0 也可清) | 5kHz 上传采集;100 点攒满冻结再发布,主站读到的一定是完整一批。0x03 单次最多 125 寄存器,200 寄存器分两次读(0x2000×125 + 0x207D×75) |
 | SCI 引脚 | GPIO29=TX, GPIO28=RX | C2000Ware 6.x 宏名 `GPIO_29_SCIA_TX` / `GPIO_28_SCIA_RX` |
 | 串口 | XDS110 **Application/User UART**,默认 COM4 | --port auto 自动识别;怕 COM 漂移 |
 | 烧写 | DSLite(UniFlash CLI)+ TMS320F280025C_LaunchPad.ccxml | XDS110 固件提示升级到 3.0.0.41(可选) |
@@ -41,6 +42,9 @@ powershell -ExecutionPolicy Bypass -File E:\f280025c_modbus_slave\ccs\fix_boot.p
 
 # 2) 起桥(独占 COM4,窗口实时打印每帧 TX/RX)
 python -X utf8 E:\f280025c_modbus_slave\tools\serial_bridge.py
+
+# 2.5) 注意:Web 上位机(WSL)需把 DEFAULT_BAUD 改为 1041667(与固件一致)
+#       (在 ~/ai_motor_control/lib/config.ts,改完强刷页面)
 
 # 3) 启动 Web 上位机(WSL)
 cd ~/ai_motor_control && npm run dev
